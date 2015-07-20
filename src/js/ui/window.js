@@ -111,7 +111,7 @@ Window.prototype._remove = function() {
 };
 
 Window.prototype._clearAction = function() {
-  actionProps.forEach(myutil.unset.bind(this, this.state.action));
+  actionProps.forEach(Propable.unset.bind(this.state.action));
 };
 
 Window.prototype._clear = function(flags) {
@@ -265,13 +265,25 @@ Window.prototype._toString = function() {
   return '[' + this.constructor._codeName + ' ' + this._id() + ']';
 };
 
-Window.emit = function(type, subtype, e, klass) {
-  var wind = e.window = WindowStack.top();
+Window.prototype._emit = function(type, subtype, e) {
+  e.window = this;
+  var klass = this.constructor;
   if (klass) {
-    e[klass._codeName] = wind;
+    e[klass._codeName] = this;
   }
-  if (wind && wind.emit(type, subtype, e) === false) {
+  if (this.emit(type, subtype, e) === false) {
     return false;
+  }
+};
+
+Window.prototype._emitShow = function(type) {
+  return this._emit(type, null, {});
+};
+
+Window.emit = function(type, subtype, e) {
+  var wind = WindowStack.top();
+  if (wind) {
+    return wind._emit(type, subtype, e);
   }
 };
 

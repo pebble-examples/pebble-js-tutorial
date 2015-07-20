@@ -6,8 +6,11 @@
 
 #include "simply.h"
 
+#include "util/color.h"
 #include "util/graphics.h"
+#include "util/math.h"
 #include "util/string.h"
+#include "util/window.h"
 
 #include <pebble.h>
 
@@ -42,13 +45,45 @@ static SimplyStyle STYLES[] = {
   },
 };
 
+typedef struct CardClearPacket CardClearPacket;
+
+struct __attribute__((__packed__)) CardClearPacket {
+  Packet packet;
+  uint8_t flags;
+};
+
+typedef struct CardTextPacket CardTextPacket;
+
+struct __attribute__((__packed__)) CardTextPacket {
+  Packet packet;
+  uint8_t index;
+  GColor8 color;
+  char text[];
+};
+
+typedef struct CardImagePacket CardImagePacket;
+
+struct __attribute__((__packed__)) CardImagePacket {
+  Packet packet;
+  uint32_t image;
+  uint8_t index;
+};
+
+typedef struct CardStylePacket CardStylePacket;
+
+struct __attribute__((__packed__)) CardStylePacket {
+  Packet packet;
+  uint8_t style;
+};
+
 void simply_ui_clear(SimplyUi *self, uint32_t clear_mask) {
   if (clear_mask & (1 << ClearAction)) {
     simply_window_action_bar_clear(&self->window);
   }
   if (clear_mask & (1 << ClearText)) {
-    for (SimplyUiTextfield textfield = 0; textfield < NumUiTextfields; ++textfield) {
-      simply_ui_set_text(self, textfield, NULL);
+    for (int textfield_id = 0; textfield_id < NumUiTextfields; ++textfield_id) {
+      simply_ui_set_text(self, textfield_id, NULL);
+      simply_ui_set_text_color(self, textfield_id, GColor8Black);
     }
   }
   if (clear_mask & (1 << ClearImage)) {
@@ -69,9 +104,18 @@ void simply_ui_set_style(SimplyUi *self, int style_index) {
   layer_mark_dirty(self->ui_layer.layer);
 }
 
-void simply_ui_set_text(SimplyUi *self, SimplyUiTextfield textfield, const char *str) {
-  char **str_field = &self->ui_layer.textfields[textfield];
+void simply_ui_set_text(SimplyUi *self, SimplyUiTextfieldId textfield_id, const char *str) {
+  SimplyUiTextfield *textfield = &self->ui_layer.textfields[textfield_id];
+  char **str_field = &textfield->text;
   strset(str_field, str);
+  if (self->ui_layer.layer) {
+    layer_mark_dirty(self->ui_layer.layer);
+  }
+}
+
+void simply_ui_set_text_color(SimplyUi *self, SimplyUiTextfieldId textfield_id, GColor8 color) {
+  SimplyUiTextfield *textfield = &self->ui_layer.textfields[textfield_id];
+  textfield->color = color;
   if (self->ui_layer.layer) {
     layer_mark_dirty(self->ui_layer.layer);
   }
@@ -86,7 +130,8 @@ static void layer_update_callback(Layer *layer, GContext *ctx) {
   const SimplyStyle *style = self->ui_layer.style;
   GFont title_font = fonts_get_system_font(style->title_font);
   GFont subtitle_font = fonts_get_system_font(style->subtitle_font);
-  GFont body_font = self->ui_layer.custom_body_font ? self->ui_layer.custom_body_font : fonts_get_system_font(style->body_font);
+  GFont body_font = self->ui_layer.custom_body_font ?
+      self->ui_layer.custom_body_font : fonts_get_system_font(style->body_font);
 
   const int16_t margin_x = 5;
   const int16_t margin_y = 2;
@@ -104,37 +149,48 @@ static void layer_update_callback(Layer *layer, GContext *ctx) {
 
   graphics_context_set_text_color(ctx, GColorBlack);
 
-  const char *title_text = self->ui_layer.textfields[UiTitle];
-  const char *subtitle_text = self->ui_layer.textfields[UiSubtitle];
-  const char *body_text = self->ui_layer.textfields[UiBody];
+  const SimplyUiTextfield *title = &self->ui_layer.textfields[UiTitle];
+  const SimplyUiTextfield *subtitle = &self->ui_layer.textfields[UiSubtitle];
+  const SimplyUiTextfield *body = &self->ui_layer.textfields[UiBody];
 
-  bool has_title = is_string(title_text);
-  bool has_subtitle = is_string(subtitle_text);
-  bool has_body = is_string(body_text);
+  bool has_title = is_string(title->text);
+  bool has_subtitle = is_string(subtitle->text);
+  bool has_body = is_string(body->text);
 
   GSize title_size, subtitle_size;
   GPoint title_pos, subtitle_pos, image_pos = GPointZero;
   GRect body_rect;
 
-  GBitmap *title_icon = simply_res_get_image(
+  SimplyImage *title_icon = simply_res_get_image(
       self->window.simply->res, self->ui_layer.imagefields[UiTitleIcon]);
-  GBitmap *subtitle_icon = simply_res_get_image(
+  SimplyImage *subtitle_icon = simply_res_get_image(
       self->window.simply->res, self->ui_layer.imagefields[UiSubtitleIcon]);
-  GBitmap *body_image = simply_res_get_image(
+  SimplyImage *body_image = simply_res_get_image(
       self->window.simply->res, self->ui_layer.imagefields[UiBodyImage]);
+
+  GRect title_icon_bounds;
+  GRect subtitle_icon_bounds;
+  GRect body_image_bounds;
+
+  if (title_icon) {
+    title_icon_bounds = gbitmap_get_bounds(title_icon->bitmap);
+  }
+  if (subtitle_icon) {
+    subtitle_icon_bounds = gbitmap_get_bounds(subtitle_icon->bitmap);
+  }
 
   if (has_title) {
     GRect title_frame = text_frame;
     if (title_icon) {
-      title_frame.origin.x += title_icon->bounds.size.w;
-      title_frame.size.w -= title_icon->bounds.size.w;
+      title_frame.origin.x += title_icon_bounds.size.w;
+      title_frame.size.w -= title_icon_bounds.size.w;
     }
-    title_size = graphics_text_layout_get_content_size(title_text,
+    title_size = graphics_text_layout_get_content_size(title->text,
         title_font, title_frame, GTextOverflowModeWordWrap, GTextAlignmentLeft);
     title_size.w = title_frame.size.w;
     title_pos = cursor;
     if (title_icon) {
-      title_pos.x += title_icon->bounds.size.w;
+      title_pos.x += title_icon_bounds.size.w;
     }
     cursor.y += title_size.h;
   }
@@ -142,22 +198,23 @@ static void layer_update_callback(Layer *layer, GContext *ctx) {
   if (has_subtitle) {
     GRect subtitle_frame = text_frame;
     if (subtitle_icon) {
-      subtitle_frame.origin.x += subtitle_icon->bounds.size.w;
-      subtitle_frame.size.w -= subtitle_icon->bounds.size.w;
+      subtitle_frame.origin.x += subtitle_icon_bounds.size.w;
+      subtitle_frame.size.w -= subtitle_icon_bounds.size.w;
     }
-    subtitle_size = graphics_text_layout_get_content_size(subtitle_text,
+    subtitle_size = graphics_text_layout_get_content_size(subtitle->text,
         title_font, subtitle_frame, GTextOverflowModeWordWrap, GTextAlignmentLeft);
     subtitle_size.w = subtitle_frame.size.w;
     subtitle_pos = cursor;
     if (subtitle_icon) {
-      subtitle_pos.x += subtitle_icon->bounds.size.w;
+      subtitle_pos.x += subtitle_icon_bounds.size.w;
     }
     cursor.y += subtitle_size.h;
   }
 
   if (body_image) {
+    body_image_bounds = gbitmap_get_bounds(body_image->bitmap);
     image_pos = cursor;
-    cursor.y += body_image->bounds.size.h;
+    cursor.y += body_image_bounds.size.h;
   }
 
   if (has_body) {
@@ -165,7 +222,7 @@ static void layer_update_callback(Layer *layer, GContext *ctx) {
     body_rect.origin = cursor;
     body_rect.size.w = text_frame.size.w;
     body_rect.size.h -= 2 * margin_y + cursor.y;
-    GSize body_size = graphics_text_layout_get_content_size(body_text,
+    GSize body_size = graphics_text_layout_get_content_size(body->text,
         body_font, text_frame, GTextOverflowModeWordWrap, GTextAlignmentLeft);
     if (self->window.is_scrollable) {
       body_rect.size = body_size;
@@ -181,20 +238,20 @@ static void layer_update_callback(Layer *layer, GContext *ctx) {
   graphics_context_set_fill_color(ctx, GColorBlack);
   graphics_fill_rect(ctx, frame, 0, GCornerNone);
 
-  if (self->window.background_color == GColorWhite) {
-    graphics_context_set_fill_color(ctx, GColorWhite);
-    graphics_fill_rect(ctx, frame, 4, GCornersAll);
-  }
+  graphics_context_set_fill_color(ctx, gcolor8_get_or(self->window.background_color, GColorWhite));
+  graphics_fill_rect(ctx, frame, 4, GCornersAll);
 
   if (title_icon) {
     GRect icon_frame = (GRect) {
       .origin = { margin_x, title_pos.y + image_offset_y },
-      .size = { title_icon->bounds.size.w, title_size.h }
+      .size = { title_icon_bounds.size.w, title_size.h }
     };
-    graphics_draw_bitmap_centered(ctx, title_icon, icon_frame);
+    graphics_context_set_alpha_blended(ctx, true);
+    graphics_draw_bitmap_centered(ctx, title_icon->bitmap, icon_frame);
   }
   if (has_title) {
-    graphics_draw_text(ctx, title_text, title_font,
+    graphics_context_set_text_color(ctx, gcolor8_get_or(title->color, GColorBlack));
+    graphics_draw_text(ctx, title->text, title_font,
         (GRect) { .origin = title_pos, .size = title_size },
         GTextOverflowModeWordWrap, GTextAlignmentLeft, NULL);
   }
@@ -202,12 +259,14 @@ static void layer_update_callback(Layer *layer, GContext *ctx) {
   if (subtitle_icon) {
     GRect subicon_frame = (GRect) {
       .origin = { margin_x, subtitle_pos.y + image_offset_y },
-      .size = { subtitle_icon->bounds.size.w, subtitle_size.h }
+      .size = { subtitle_icon_bounds.size.w, subtitle_size.h }
     };
-    graphics_draw_bitmap_centered(ctx, subtitle_icon, subicon_frame);
+    graphics_context_set_alpha_blended(ctx, true);
+    graphics_draw_bitmap_centered(ctx, subtitle_icon->bitmap, subicon_frame);
   }
   if (has_subtitle) {
-    graphics_draw_text(ctx, subtitle_text, subtitle_font,
+    graphics_context_set_text_color(ctx, gcolor8_get_or(subtitle->color, GColorBlack));
+    graphics_draw_text(ctx, subtitle->text, subtitle_font,
         (GRect) { .origin = subtitle_pos, .size = subtitle_size },
         GTextOverflowModeWordWrap, GTextAlignmentLeft, NULL);
   }
@@ -215,12 +274,14 @@ static void layer_update_callback(Layer *layer, GContext *ctx) {
   if (body_image) {
     GRect image_frame = (GRect) {
       .origin = { 0, image_pos.y + image_offset_y },
-      .size = { window_frame.size.w, body_image->bounds.size.h }
+      .size = { window_frame.size.w, body_image_bounds.size.h }
     };
-    graphics_draw_bitmap_centered(ctx, body_image, image_frame);
+    graphics_context_set_alpha_blended(ctx, true);
+    graphics_draw_bitmap_centered(ctx, body_image->bitmap, image_frame);
   }
   if (has_body) {
-    graphics_draw_text(ctx, body_text, body_font, body_rect,
+    graphics_context_set_text_color(ctx, gcolor8_get_or(body->color, GColorBlack));
+    graphics_draw_text(ctx, body->text, body_font, body_rect,
         GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
   }
 }
@@ -247,19 +308,20 @@ static void window_load(Window *window) {
   *(void**) layer_get_data(layer) = self;
   layer_set_update_proc(layer, layer_update_callback);
   scroll_layer_add_child(self->window.scroll_layer, layer);
-  scroll_layer_set_click_config_onto_window(self->window.scroll_layer, window);
 
   simply_ui_set_style(self, 1);
 }
 
 static void window_appear(Window *window) {
   SimplyUi *self = window_get_user_data(window);
-  simply_window_stack_send_show(self->window.simply->window_stack, &self->window);
+  simply_window_appear(&self->window);
 }
 
 static void window_disappear(Window *window) {
   SimplyUi *self = window_get_user_data(window);
-  simply_window_stack_send_hide(self->window.simply->window_stack, &self->window);
+  if (simply_window_disappear(&self->window)) {
+    simply_res_clear(self->window.simply->res);
+  }
 }
 
 static void window_unload(Window *window) {
@@ -271,12 +333,62 @@ static void window_unload(Window *window) {
   simply_window_unload(&self->window);
 }
 
+static void handle_card_clear_packet(Simply *simply, Packet *data) {
+  CardClearPacket *packet = (CardClearPacket*) data;
+  simply_ui_clear(simply->ui, packet->flags);
+}
+
+static void handle_card_text_packet(Simply *simply, Packet *data) {
+  CardTextPacket *packet = (CardTextPacket*) data;
+  SimplyUiTextfieldId textfield_id = packet->index;
+  if (textfield_id >= NumUiTextfields) {
+    return;
+  }
+  simply_ui_set_text(simply->ui, textfield_id, packet->text);
+  if (!gcolor8_equal(packet->color, GColor8ClearWhite)) {
+    simply_ui_set_text_color(simply->ui, textfield_id, packet->color);
+  }
+}
+
+static void handle_card_image_packet(Simply *simply, Packet *data) {
+  CardImagePacket *packet = (CardImagePacket*) data;
+  SimplyUiImagefieldId imagefield_id = packet->index;
+  if (imagefield_id >= NumUiImagefields) {
+    return;
+  }
+  simply->ui->ui_layer.imagefields[imagefield_id] = packet->image;
+  window_stack_schedule_top_window_render();
+}
+
+static void handle_card_style_packet(Simply *simply, Packet *data) {
+  CardStylePacket *packet = (CardStylePacket*) data;
+  simply_ui_set_style(simply->ui, packet->style);
+}
+
+bool simply_ui_handle_packet(Simply *simply, Packet *packet) {
+  switch (packet->type) {
+    case CommandCardClear:
+      handle_card_clear_packet(simply, packet);
+      return true;
+    case CommandCardText:
+      handle_card_text_packet(simply, packet);
+      return true;
+    case CommandCardImage:
+      handle_card_image_packet(simply, packet);
+      return true;
+    case CommandCardStyle:
+      handle_card_style_packet(simply, packet);
+      return true;
+  }
+  return false;
+}
+
 SimplyUi *simply_ui_create(Simply *simply) {
   SimplyUi *self = malloc(sizeof(*self));
   *self = (SimplyUi) { .window.layer = NULL };
 
   simply_window_init(&self->window, simply);
-  simply_window_set_background_color(&self->window, GColorWhite);
+  simply_window_set_background_color(&self->window, GColor8White);
 
   window_set_user_data(self->window.window, self);
   window_set_window_handlers(self->window.window, (WindowHandlers) {
