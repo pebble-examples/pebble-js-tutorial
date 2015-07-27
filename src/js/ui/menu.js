@@ -5,8 +5,16 @@ var WindowStack = require('ui/windowstack');
 var Window = require('ui/window');
 var simply = require('ui/simply');
 
+var defaults = {
+  backgroundColor: 'white',
+  textColor: 'black',
+  highlightBackgroundColor: 'black',
+  highlightTextColor: 'white',
+  fullscreen: false,
+};
+
 var Menu = function(menuDef) {
-  Window.call(this, menuDef);
+  Window.call(this, myutil.shadow(defaults, menuDef || {}));
   this._dynamic = false;
   this._sections = {};
   this._selection = { sectionIndex: 0, itemIndex: 0 };
@@ -26,7 +34,7 @@ Menu.prototype._show = function() {
   simply.impl.menuSelection(select.sectionIndex, select.itemIndex);
 };
 
-Menu.prototype._numPreloadItems = 5;
+Menu.prototype._numPreloadItems = 50;
 
 Menu.prototype._prop = function(state, clear, pushing) {
   if (this === WindowStack.top()) {
@@ -297,9 +305,7 @@ Menu.prototype.selection = function(callback) {
   simply.impl.menuSelection();
 };
 
-Menu.emit = function(type, subtype, e) {
-  Window.emit(type, subtype, e, Menu);
-};
+Menu.emit = Window.emit;
 
 Menu.emitSection = function(sectionIndex) {
   var menu = WindowStack.top();

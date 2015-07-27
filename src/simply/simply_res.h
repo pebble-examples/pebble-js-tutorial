@@ -1,5 +1,6 @@
 #pragma once
 
+#include "util/color.h"
 #include "util/list1.h"
 
 #include <pebble.h>
@@ -35,7 +36,10 @@ typedef struct SimplyImage SimplyImage;
 
 struct SimplyImage {
   SimplyResItemCommonMember;
-  GBitmap bitmap;
+  uint8_t *bitmap_data;
+  GBitmap *bitmap;
+  GColor8 *palette;
+  bool is_palette_black_and_white:1;
 };
 
 typedef struct SimplyFont SimplyFont;
@@ -49,9 +53,10 @@ SimplyRes *simply_res_create();
 void simply_res_destroy(SimplyRes *self);
 void simply_res_clear(SimplyRes *self);
 
-GBitmap *simply_res_add_bundled_image(SimplyRes *self, uint32_t id);
-GBitmap *simply_res_add_image(SimplyRes *self, uint32_t id, int16_t width, int16_t height, uint32_t *pixels);
-GBitmap *simply_res_auto_image(SimplyRes *self, uint32_t id, bool is_placeholder);
+SimplyImage *simply_res_add_bundled_image(SimplyRes *self, uint32_t id);
+SimplyImage *simply_res_add_image(SimplyRes *self, uint32_t id, int16_t width, int16_t height, uint8_t *pixels);
+SimplyImage *simply_res_auto_image(SimplyRes *self, uint32_t id, bool is_placeholder);
+bool simply_res_evict_image(SimplyRes *self);
 
 GFont simply_res_add_custom_font(SimplyRes *self, uint32_t id);
 GFont simply_res_auto_font(SimplyRes *self, uint32_t id);

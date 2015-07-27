@@ -29,8 +29,11 @@ var deformify = function(form) {
  * @property {string} [method='get'] - The HTTP method to use: 'get', 'post', 'put', 'delete', 'options',
  *    or any other standard method supported by the running environment.
  * @property {string} url - The URL to make the ajax request to. e.g. 'http://www.example.com?name=value'
- * @property {string} [type='text'] - The expected response format. Specify 'json' to have ajax parse
- *    the response as json and pass an object as the data parameter.
+ * @property {string} [type] - The content and response format. By default, the content format
+ *    is 'form' and response format is separately 'text'. Specifying 'json' will have ajax send `data`
+ *    as json as well as parse the response as json. Specifying 'text' allows you to send custom
+ *    formatted content and parse the raw response text. If you wish to send form encoded data and
+ *    parse json, leave `type` undefined and use `JSON.decode` to parse the response data.
  * @property {object} [data] - The request body, mainly to be used in combination with 'post' or 'put'.
  *    e.g. { username: 'guest' }
  * @property {object} headers - Custom HTTP headers. Specify additional headers.
@@ -66,7 +69,7 @@ var ajax = function(opt, success, failure) {
 
   if (opt.cache === false) {
     var appendSymbol = url.indexOf('?') === -1 ? '?' : '&';
-    url += appendSymbol + '_=' + new Date().getTime();
+    url += appendSymbol + '_=' + Date.now();
   }
 
   var req = new XMLHttpRequest();
@@ -79,12 +82,15 @@ var ajax = function(opt, success, failure) {
     }
   }
 
-  var data = null;
-  if (opt.data) {
+  var data = opt.data;
+  if (data) {
     if (opt.type === 'json') {
       req.setRequestHeader('Content-Type', 'application/json');
       data = JSON.stringify(opt.data);
-    } else {
+    } else if (opt.type === 'xml') {
+      req.setRequestHeader('Content-Type', 'text/xml');
+    } else if (opt.type !== 'text') {
+      req.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
       data = formify(opt.data);
     }
   }

@@ -1,6 +1,8 @@
 var struct = require('struct');
 var util2 = require('util2');
 var myutil = require('myutil');
+var Wakeup = require('wakeup');
+var Timeline = require('timeline');
 var Resource = require('ui/resource');
 var Accel = require('ui/accel');
 var ImageService = require('ui/imageservice');
@@ -21,6 +23,8 @@ var simply = require('ui/simply');
  * First part of this file is defining the commands and types that we will use later.
  */
 
+var state;
+
 var BoolType = function(x) {
   return x ? 1 : 0;
 };
@@ -29,11 +33,24 @@ var StringType = function(x) {
   return '' + x;
 };
 
+var UTF8ByteLength = function(x) {
+  return unescape(encodeURIComponent(x)).length;
+};
+
 var EnumerableType = function(x) {
-  if (x && x.hasOwnProperty('length')) {
+  if (typeof x === 'string') {
+    return UTF8ByteLength(x);
+  } else if (x && x.hasOwnProperty('length')) {
     return x.length;
   }
   return x ? Number(x) : 0;
+};
+
+var TimeType = function(x) {
+  if (x instanceof Date) {
+    x = x.getTime() / 1000;
+  }
+  return (x ? Number(x) : 0) + state.timeOffset;
 };
 
 var ImageType = function(x) {
@@ -53,13 +70,77 @@ var SizeType = function(x) {
   this.sizeH(x.y);
 };
 
-var Color = function(x) {
-  switch (x) {
-    case 'clear': return ~0;
-    case 'black': return 0;
-    case 'white': return 1;
-  }
-  return Number(x);
+var colorMap = {
+    'clear': 0x00,
+    'black': 0xC0,
+    'oxfordBlue': 0xC1,
+    'dukeBlue': 0xC2,
+    'blue': 0xC3,
+    'darkGreen': 0xC4,
+    'midnightGreen': 0xC5,
+    'cobaltBlue': 0xC6,
+    'blueMoon': 0xC7,
+    'islamicGreen': 0xC8,
+    'jaegerGreen': 0xC9,
+    'tiffanyBlue': 0xCA,
+    'vividCerulean': 0xCB,
+    'green': 0xCC,
+    'malachite': 0xCD,
+    'mediumSpringGreen': 0xCE,
+    'cyan': 0xCF,
+    'bulgarianRose': 0xD0,
+    'imperialPurple': 0xD1,
+    'indigo': 0xD2,
+    'electricUltramarine': 0xD3,
+    'armyGreen': 0xD4,
+    'darkGray': 0xD5,
+    'liberty': 0xD6,
+    'veryLightBlue': 0xD7,
+    'kellyGreen': 0xD8,
+    'mayGreen': 0xD9,
+    'cadetBlue': 0xDA,
+    'pictonBlue': 0xDB,
+    'brightGreen': 0xDC,
+    'screaminGreen': 0xDD,
+    'mediumAquamarine': 0xDE,
+    'electricBlue': 0xDF,
+    'darkCandyAppleRed': 0xE0,
+    'jazzberryJam': 0xE1,
+    'purple': 0xE2,
+    'vividViolet': 0xE3,
+    'windsorTan': 0xE4,
+    'roseVale': 0xE5,
+    'purpureus': 0xE6,
+    'lavenderIndigo': 0xE7,
+    'limerick': 0xE8,
+    'brass': 0xE9,
+    'lightGray': 0xEA,
+    'babyBlueEyes': 0xEB,
+    'springBud': 0xEC,
+    'inchworm': 0xED,
+    'mintGreen': 0xEE,
+    'celeste': 0xEF,
+    'red': 0xF0,
+    'folly': 0xF1,
+    'fashionMagenta': 0xF2,
+    'magenta': 0xF3,
+    'orange': 0xF4,
+    'sunsetOrange': 0xF5,
+    'brilliantRose': 0xF6,
+    'shockingPink': 0xF7,
+    'chromeYellow': 0xF8,
+    'rajah': 0xF9,
+    'melon': 0xFA,
+    'richBrilliantLavender': 0xFB,
+    'yellow': 0xFC,
+    'icterine': 0xFD,
+    'pastelYellow': 0xFE,
+    'white': 0xFF,
+    'clearWhite': 0x3F,
+};
+
+var Color = function(color) {
+  return colorMap[color] ? colorMap[color] : colorMap.clear;
 };
 
 var Font = function(x) {
@@ -167,60 +248,128 @@ var makeFlagsType = function(types) {
   };
 };
 
-var windowTypes = [
+var LaunchReasonTypes = [
+  'system',
+  'user',
+  'phone',
+  'wakeup',
+  'worker',
+  'quickLaunch',
+  'timelineAction'
+];
+
+var LaunchReasonType = makeArrayType(LaunchReasonTypes);
+
+var WindowTypes = [
   'window',
   'menu',
   'card',
 ];
 
-var WindowType = makeArrayType(windowTypes);
+var WindowType = makeArrayType(WindowTypes);
 
-var buttonTypes = [
+var ButtonTypes = [
   'back',
   'up',
   'select',
   'down',
 ];
 
-var ButtonType = makeArrayType(buttonTypes);
+var ButtonType = makeArrayType(ButtonTypes);
 
-var ButtonFlagsType = makeFlagsType(buttonTypes);
+var ButtonFlagsType = makeFlagsType(ButtonTypes);
 
-var cardTextTypes = [
+var CardTextTypes = [
   'title',
   'subtitle',
   'body',
 ];
 
-var CardTextType = makeArrayType(cardTextTypes);
+var CardTextType = makeArrayType(CardTextTypes);
 
-var cardImageTypes = [
+var CardTextColorTypes = [
+  'titleColor',
+  'subtitleColor',
+  'bodyColor',
+];
+
+var CardImageTypes = [
   'icon',
   'subicon',
   'banner',
 ];
 
-var CardImageType = makeArrayType(cardImageTypes);
+var CardImageType = makeArrayType(CardImageTypes);
 
-var cardStyleTypes = [
+var CardStyleTypes = [
   'small',
   'large',
   'mono',
 ];
 
-var CardStyleType = makeArrayType(cardStyleTypes);
+var CardStyleType = makeArrayType(CardStyleTypes);
 
-var vibeTypes = [
+var VibeTypes = [
   'short',
   'long',
   'double',
 ];
 
-var VibeType = makeArrayType(vibeTypes);
+var VibeType = makeArrayType(VibeTypes);
+
+var LightTypes = [
+  'on',
+  'auto',
+  'trigger'
+];
+
+var LightType = makeArrayType(LightTypes);
 
 var Packet = new struct([
   ['uint16', 'type'],
   ['uint16', 'length'],
+]);
+
+var SegmentPacket = new struct([
+  [Packet, 'packet'],
+  ['bool', 'isLast'],
+  ['data', 'buffer'],
+]);
+
+var ReadyPacket = new struct([
+  [Packet, 'packet'],
+]);
+
+var LaunchReasonPacket = new struct([
+  [Packet, 'packet'],
+  ['uint32', 'reason', LaunchReasonType],
+  ['uint32', 'args'],
+  ['uint32', 'time'],
+  ['bool', 'isTimezone'],
+]);
+
+var WakeupSetPacket = new struct([
+  [Packet, 'packet'],
+  ['uint32', 'timestamp', TimeType],
+  ['int32', 'cookie'],
+  ['uint8', 'notifyIfMissed', BoolType],
+]);
+
+var WakeupSetResultPacket = new struct([
+  [Packet, 'packet'],
+  ['int32', 'id'],
+  ['int32', 'cookie'],
+]);
+
+var WakeupCancelPacket = new struct([
+  [Packet, 'packet'],
+  ['int32', 'id'],
+]);
+
+var WakeupEventPacket = new struct([
+  [Packet, 'packet'],
+  ['int32', 'id'],
+  ['int32', 'cookie'],
 ]);
 
 var WindowShowPacket = new struct([
@@ -292,6 +441,7 @@ var CardClearPacket = new struct([
 var CardTextPacket = new struct([
   [Packet, 'packet'],
   ['uint8', 'index', CardTextType],
+  ['uint8', 'color', Color],
   ['cstring', 'text'],
 ]);
 
@@ -309,6 +459,11 @@ var CardStylePacket = new struct([
 var VibePacket = new struct([
   [Packet, 'packet'],
   ['uint8', 'type', VibeType],
+]);
+
+var LightPacket = new struct([
+  [Packet, 'packet'],
+  ['uint8', 'type', LightType],
 ]);
 
 var AccelPeekPacket = new struct([
@@ -354,6 +509,10 @@ var MenuClearSectionPacket = new struct([
 var MenuPropsPacket = new struct([
   [Packet, 'packet'],
   ['uint16', 'sections', EnumerableType],
+  ['uint8', 'backgroundColor', Color],
+  ['uint8', 'textColor', Color],
+  ['uint8', 'highlightBackgroundColor', Color],
+  ['uint8', 'highlightTextColor', Color],
 ]);
 
 var MenuSectionPacket = new struct([
@@ -502,6 +661,13 @@ var ElementAnimateDonePacket = new struct([
 
 var CommandPackets = [
   Packet,
+  SegmentPacket,
+  ReadyPacket,
+  LaunchReasonPacket,
+  WakeupSetPacket,
+  WakeupSetResultPacket,
+  WakeupCancelPacket,
+  WakeupEventPacket,
   WindowShowPacket,
   WindowHidePacket,
   WindowShowEventPacket,
@@ -517,6 +683,7 @@ var CommandPackets = [
   CardImagePacket,
   CardStylePacket,
   VibePacket,
+  LightPacket,
   AccelPeekPacket,
   AccelConfigPacket,
   AccelDataPacket,
@@ -563,8 +730,6 @@ var clearFlagMap = {
  * It's an implementation of an abstract interface used by all the other classes.
  */
 
-var state;
-
 var SimplyPebble = {};
 
 SimplyPebble.init = function() {
@@ -576,11 +741,16 @@ SimplyPebble.init = function() {
 
   state = SimplyPebble.state = {};
 
+  state.timeOffset = new Date().getTimezoneOffset() * -60;
+
   // Initialize the app message queue
   state.messageQueue = new MessageQueue();
 
   // Initialize the packet queue
   state.packetQueue = new PacketQueue();
+
+  // Signal the Pebble that the Phone's app message is ready
+  SimplyPebble.ready();
 };
 
 /**
@@ -651,11 +821,11 @@ var PacketQueue = function() {
   this._send = this.send.bind(this);
 };
 
-PacketQueue.prototype._maxPayloadSize = 2048 - 20;
+PacketQueue.prototype._maxPayloadSize = 2044 - 32;
 
 PacketQueue.prototype.add = function(packet) {
   var byteArray = toByteArray(packet);
-  if (this._message.length + byteArray.length >= this._maxPayloadSize) {
+  if (this._message.length + byteArray.length > this._maxPayloadSize) {
     this.send();
   }
   Array.prototype.push.apply(this._message, byteArray);
@@ -664,12 +834,47 @@ PacketQueue.prototype.add = function(packet) {
 };
 
 PacketQueue.prototype.send = function() {
+  if (this._message.length === 0) {
+    return;
+  }
   state.messageQueue.send({ 0: this._message });
   this._message = [];
 };
 
+SimplyPebble.sendMultiPacket = function(packet) {
+  var byteArray = toByteArray(packet);
+  var totalSize = byteArray.length;
+  var segmentSize = state.packetQueue._maxPayloadSize - Packet._size;
+  for (var i = 0; i < totalSize; i += segmentSize) {
+    var isLast = (i + segmentSize) >= totalSize;
+    var buffer = byteArray.slice(i, Math.min(totalSize, i + segmentSize));
+    SegmentPacket.isLast((i + segmentSize) >= totalSize).buffer(buffer);
+    state.packetQueue.add(SegmentPacket);
+  }
+};
+
 SimplyPebble.sendPacket = function(packet) {
-  state.packetQueue.add(packet);
+  if (packet._cursor < state.packetQueue._maxPayloadSize) {
+    state.packetQueue.add(packet);
+  } else {
+    SimplyPebble.sendMultiPacket(packet);
+  }
+};
+
+SimplyPebble.ready = function() {
+  SimplyPebble.sendPacket(ReadyPacket);
+};
+
+SimplyPebble.wakeupSet = function(timestamp, cookie, notifyIfMissed) {
+  WakeupSetPacket
+    .timestamp(timestamp)
+    .cookie(cookie)
+    .notifyIfMissed(notifyIfMissed);
+  SimplyPebble.sendPacket(WakeupSetPacket);
+};
+
+SimplyPebble.wakeupCancel = function(id) {
+  SimplyPebble.sendPacket(WakeupCancelPacket.id(id === 'all' ? -1 : id));
 };
 
 SimplyPebble.windowShow = function(def) {
@@ -680,10 +885,10 @@ SimplyPebble.windowHide = function(id) {
   SimplyPebble.sendPacket(WindowHidePacket.id(id));
 };
 
-SimplyPebble.windowProps = function(def, backgroundColor) {
+SimplyPebble.windowProps = function(def) {
   WindowPropsPacket
     .prop(def)
-    .backgroundColor(backgroundColor);
+    .backgroundColor(def.backgroundColor || 'white');
   SimplyPebble.sendPacket(WindowPropsPacket);
 };
 
@@ -734,12 +939,20 @@ SimplyPebble.cardClear = function(clear) {
   SimplyPebble.sendPacket(CardClearPacket.flags(toClearFlags(clear)));
 };
 
-SimplyPebble.cardText = function(field, text) {
-  SimplyPebble.sendPacket(CardTextPacket.index(field).text(text || ''));
+SimplyPebble.cardText = function(field, text, color) {
+  CardTextPacket
+    .index(field)
+    .color(color || 'clearWhite')
+    .text(text || '');
+  SimplyPebble.sendPacket(CardTextPacket);
 };
 
 SimplyPebble.cardImage = function(field, image) {
   SimplyPebble.sendPacket(CardImagePacket.index(field).image(image));
+};
+
+SimplyPebble.cardStyle = function(field, style) {
+  SimplyPebble.sendPacket(CardStylePacket.style(style));
 };
 
 SimplyPebble.card = function(def, clear, pushing) {
@@ -749,21 +962,28 @@ SimplyPebble.card = function(def, clear, pushing) {
   if (clear !== undefined) {
     SimplyPebble.cardClear(clear);
   }
-  SimplyPebble.windowProps(def, 'white');
+  SimplyPebble.windowProps(def);
   if (def.action !== undefined) {
     SimplyPebble.windowActionBar(def.action);
   }
   for (var k in def) {
-    if (cardTextTypes.indexOf(k) !== -1) {
-      SimplyPebble.cardText(k, def[k]);
-    } else if (cardImageTypes.indexOf(k) !== -1) {
+    var textIndex = CardTextTypes.indexOf(k);
+    if (textIndex !== -1) {
+      SimplyPebble.cardText(k, def[k], def[CardTextColorTypes[textIndex]]);
+    } else if (CardImageTypes.indexOf(k) !== -1) {
       SimplyPebble.cardImage(k, def[k]);
+    } else if (k === 'style') {
+      SimplyPebble.cardStyle(k, def[k]);
     }
   }
 };
 
 SimplyPebble.vibe = function(type) {
   SimplyPebble.sendPacket(VibePacket.type(type));
+};
+
+SimplyPebble.light = function(type) {
+  SimplyPebble.sendPacket(LightPacket.type(type));
 };
 
 var accelListeners = [];
@@ -936,6 +1156,59 @@ var toArrayBuffer = function(array, length) {
   return copy;
 };
 
+SimplyPebble.onLaunchReason = function(packet) {
+  var reason = LaunchReasonTypes[packet.reason()];
+  var args = packet.args();
+  var remoteTime = packet.time();
+  var isTimezone = packet.isTimezone();
+  if (isTimezone) {
+    state.timeOffset = 0;
+  } else {
+    var time = Date.now() / 1000;
+    var resolution = 60 * 30;
+    state.timeOffset = Math.round((remoteTime - time) / resolution) * resolution;
+  }
+  if (reason === 'timelineAction') {
+    Timeline.emitAction(args);
+  } else {
+    Timeline.emitAction();
+  }
+  if (reason !== 'wakeup') {
+    Wakeup.emitWakeup();
+  }
+};
+
+SimplyPebble.onWakeupSetResult = function(packet) {
+  var id = packet.id();
+  switch (id) {
+    case -8: id = 'range'; break;
+    case -4: id = 'invalidArgument'; break;
+    case -7: id = 'outOfResources'; break;
+    case -3: id = 'internal'; break;
+  }
+  Wakeup.emitSetResult(id, packet.cookie());
+};
+
+SimplyPebble.onAccelData = function(packet) {
+  var samples = packet.samples();
+  var accels = [];
+  AccelData._view = packet._view;
+  AccelData._offset = packet._size;
+  for (var i = 0; i < samples; ++i) {
+    accels.push(AccelData.prop());
+    AccelData._offset += AccelData._size;
+  }
+  if (!packet.peek()) {
+    Accel.emitAccelData(accels);
+  } else {
+    var handlers = accelListeners;
+    accelListeners = [];
+    for (var j = 0, jj = handlers.length; j < jj; ++j) {
+      Accel.emitAccelData(accels, handlers[j]);
+    }
+  }
+};
+
 SimplyPebble.onPacket = function(buffer, offset) {
   Packet._view = buffer;
   Packet._offset = offset;
@@ -949,33 +1222,27 @@ SimplyPebble.onPacket = function(buffer, offset) {
   packet._view = Packet._view;
   packet._offset = offset;
   switch (packet) {
+    case LaunchReasonPacket:
+      SimplyPebble.onLaunchReason(packet);
+      break;
+    case WakeupSetResultPacket:
+      SimplyPebble.onWakeupSetResult(packet);
+      break;
+    case WakeupEventPacket:
+      Wakeup.emitWakeup(packet.id(), packet.cookie());
+      break;
     case WindowHideEventPacket:
+      ImageService.markAllUnloaded();
       WindowStack.emitHide(packet.id());
       break;
     case ClickPacket:
-      Window.emitClick('click', buttonTypes[packet.button()]);
+      Window.emitClick('click', ButtonTypes[packet.button()]);
       break;
     case LongClickPacket:
-      Window.emitClick('longClick', buttonTypes[packet.button()]);
+      Window.emitClick('longClick', ButtonTypes[packet.button()]);
       break;
     case AccelDataPacket:
-      var samples = packet.samples();
-      var accels = [];
-      AccelData._view = packet._view;
-      AccelData._offset = packet._size;
-      for (var i = 0; i < samples; ++i) {
-        accels.push(AccelData.prop());
-        AccelData._offset += AccelData._size;
-      }
-      if (!packet.peek()) {
-        Accel.emitAccelData(accels);
-      } else {
-        var handlers = accelListeners;
-        accelListeners = [];
-        for (var j = 0, jj = handlers.length; j < jj; ++j) {
-          Accel.emitAccelData(accels, handlers[j]);
-        }
-      }
+      SimplyPebble.onAccelData(packet);
       break;
     case AccelTapPacket:
       Accel.emitAccelTap(accelAxes[packet.axis()], packet.direction());
