@@ -4,6 +4,8 @@ var Vector2 = require('vector2');
 var Accel = require('ui/accel');
 var Vibe = require('ui/vibe');
 
+var myAPIKey = '';
+
 var parseFeed = function(data, quantity) {
   var items = [];
   for(var i = 0; i < quantity; i++) {
@@ -49,7 +51,7 @@ splashWindow.show();
 // Make request to openweathermap.org
 ajax(
   {
-    url:'http://api.openweathermap.org/data/2.5/forecast?q=London',
+    url:'http://api.openweathermap.org/data/2.5/forecast?q=London&appid=' + myAPIKey,
     type:'json'
   },
   function(data) {
@@ -99,7 +101,7 @@ resultsMenu.on('select', function(e) {
       // Make another request to openweathermap.org
       ajax(
         {
-          url:'http://api.openweathermap.org/data/2.5/forecast?q=London',
+          url:'http://api.openweathermap.org/data/2.5/forecast?q=London&appid=' + myAPIKey,
           type:'json'
         },
         function(data) {

@@ -4,3 +4,9 @@ Sample project from the Getting Started Pebble.js watchapp tutorials, showing ho
 
 ![screenshot](screenshots/screenshot.png)
 ![screenshot1](screenshots/screenshot1.png)
+
+**Important**
+
+To obtain weather information, you must supply a value for `myAPIKey` in 
+`src/js/app.js`. These are freely available from
+[OpenWeatherMap.org](https://openweathermap.org/appid).
